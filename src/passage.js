@@ -1,5 +1,6 @@
 const pool = require('./db');
 const { normalizePlate } = require('./plate');
+const { OVERDRAFT_LIMIT, LATE_FINE } = require('./rules');
 
 const LOW_CONFIDENCE = 0.75;
 
@@ -74,7 +75,8 @@ async function processPassage(gate, body) {
       'SELECT id, balance FROM wallets WHERE user_id = $1 FOR UPDATE', [vehicle.user_id]
     )).rows[0];
 
-    const canPay = Number(wallet.balance) >= amount;
+    // Pay even with a low balance, as long as the wallet stays within the overdraft limit (-20 EGP).
+    const canPay = Number(wallet.balance) - amount >= -OVERDRAFT_LIMIT;
     const status = stolen ? 'STOLEN_ALERT' : (canPay ? 'PAID' : 'INSUFFICIENT_BALANCE');
     const passage = await insertPassage(
       c, gate, vehicle.id, plate, confidence, method, imageUrl, status, canPay ? amount : 0, ts
@@ -93,19 +95,26 @@ async function processPassage(gate, body) {
         [wallet.id, -amount, newBalance, passage.id, 'Toll - ' + gate.name]
       );
     } else {
+      // Over the limit: the toll stays unpaid and a fine is added. Both are taken on the next top-up.
       await c.query(
-        `INSERT INTO violations (passage_id, vehicle_id, user_id, toll_amount, due_date)
-         VALUES ($1,$2,$3,$4, CURRENT_DATE + 7)`,
-        [passage.id, vehicle.id, vehicle.user_id, amount]
+        `INSERT INTO violations (passage_id, vehicle_id, user_id, toll_amount, fine_amount, due_date)
+         VALUES ($1,$2,$3,$4,$5, CURRENT_DATE + 7)`,
+        [passage.id, vehicle.id, vehicle.user_id, amount, LATE_FINE]
       );
     }
     if (stolen) await createAlert(c, stolen.id, passage.id, gate.id);
 
     await c.query('COMMIT');
 
-    notify = canPay
-      ? { title: 'Toll paid', body: `${amount} EGP deducted at ${gate.name}. New balance: ${newBalance} EGP.` }
-      : { title: 'Insufficient balance', body: `You passed ${gate.name} but your balance is too low for the ${amount} EGP toll. Please top up.` };
+    if (canPay && newBalance >= 0) {
+      notify = { title: 'Toll paid', body: `${amount} EGP deducted at ${gate.name}. New balance: ${newBalance} EGP.` };
+    } else if (canPay) {
+      notify = { title: 'Toll paid on credit',
+        body: `${amount} EGP deducted at ${gate.name}. Your balance is ${newBalance} EGP (limit -${OVERDRAFT_LIMIT} EGP). It is paid back automatically when you top up.` };
+    } else {
+      notify = { title: 'Fine: balance too low',
+        body: `You passed ${gate.name} without enough balance. ${amount} EGP toll + ${LATE_FINE} EGP fine will be taken automatically when you top up.` };
+    }
     // In-app notification now; real push (Firebase) is added later with the mobile app.
     pool.query(
       'INSERT INTO notifications (user_id, title, body, data) VALUES ($1,$2,$3,$4)',

@@ -1,4 +1,5 @@
 require('dotenv').config();
+const { OVERDRAFT_LIMIT, LATE_FINE } = require('./rules');
 const express = require('express');
 const path = require('path');
 const cors = require('cors');
@@ -105,7 +106,7 @@ app.get('/api/v1/app/wallet', user, wrap(async (req, res) => {
        (SELECT vehicle_type_id FROM vehicles WHERE user_id = $1 AND is_active ORDER BY created_at LIMIT 1),
        (SELECT id FROM vehicle_types WHERE code = 'CAR'))
      ORDER BY r.amount LIMIT 1`, [req.auth.id])).rows[0] || {};
-  res.json({ ...rows[0], ...price });
+  res.json({ ...rows[0], ...price, overdraft_limit: OVERDRAFT_LIMIT, late_fine: LATE_FINE });
 }));
 
 app.get('/api/v1/app/wallet/transactions', user, wrap(async (req, res) => {
@@ -132,8 +133,31 @@ app.post('/api/v1/app/wallet/topup-demo', user, wrap(async (req, res) => {
     await c.query(
       `INSERT INTO wallet_transactions (wallet_id, type, amount, balance_after, payment_id, description)
        VALUES ($1,'TOPUP',$2,$3,$4,'Wallet top-up (demo)')`, [w.id, amount, w.balance, p.id]);
+    // A negative balance is covered by the top-up itself. Then unpaid tolls + fines are taken, oldest first.
+    let balance = Number(w.balance);
+    const open = (await c.query(
+      `SELECT id, toll_amount, fine_amount FROM violations
+       WHERE user_id = $1 AND status = 'OPEN' ORDER BY created_at FOR UPDATE`, [req.auth.id])).rows;
+    let settled = 0;
+    for (const v of open) {
+      const due = Number(v.toll_amount) + Number(v.fine_amount);
+      if (balance < due) break;
+      balance = Number((await c.query(
+        'UPDATE wallets SET balance = balance - $1, updated_at = now() WHERE id = $2 RETURNING balance',
+        [due, w.id])).rows[0].balance);
+      await c.query(
+        `INSERT INTO wallet_transactions (wallet_id, type, amount, balance_after, description, created_at)
+         VALUES ($1,'FINE',$2,$3,$4, clock_timestamp())`,
+        [w.id, -due, balance, `Unpaid toll ${Number(v.toll_amount)} EGP + fine ${Number(v.fine_amount)} EGP`]);
+      await c.query(`UPDATE violations SET status = 'PAID', resolved_at = now() WHERE id = $1`, [v.id]);
+      settled += due;
+    }
+    if (settled > 0) {
+      await c.query('INSERT INTO notifications (user_id, title, body) VALUES ($1,$2,$3)',
+        [req.auth.id, 'Fines paid', `${settled} EGP of unpaid tolls and fines was taken from your top-up. New balance: ${balance} EGP.`]);
+    }
     await c.query('COMMIT');
-    res.json({ balance: w.balance });
+    res.json({ balance, settled });
   } catch (e) { await c.query('ROLLBACK'); throw e; }
   finally { c.release(); }
 }));

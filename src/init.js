@@ -4,8 +4,29 @@ const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const pool = require('./db');
+const { OVERDRAFT_LIMIT } = require('./rules');
+
+// Small changes to an existing database, safe to run on every start.
+async function migrate() {
+  // Let wallets go negative down to the overdraft limit.
+  const name = `wallets_overdraft_limit_${OVERDRAFT_LIMIT}`;
+  const has = (await pool.query('SELECT 1 FROM pg_constraint WHERE conname = $1', [name])).rows[0];
+  if (has) return;
+  const old = (await pool.query(
+    `SELECT conname FROM pg_constraint WHERE conrelid = 'wallets'::regclass AND contype = 'c'
+       AND (conname = 'wallets_balance_check' OR conname LIKE 'wallets_overdraft_limit_%')`)).rows;
+  for (const r of old) await pool.query(`ALTER TABLE wallets DROP CONSTRAINT IF EXISTS "${r.conname}"`);
+  await pool.query(`ALTER TABLE wallets ADD CONSTRAINT "${name}" CHECK (balance >= -${Number(OVERDRAFT_LIMIT)})`);
+  console.log(`Wallets may now go down to -${OVERDRAFT_LIMIT} EGP`);
+}
 
 async function initDatabase() {
+  const created = await createIfEmpty();
+  await migrate();
+  return created;
+}
+
+async function createIfEmpty() {
   const { rows } = await pool.query("SELECT to_regclass('public.users') AS t");
   if (rows[0].t) return false;
 
