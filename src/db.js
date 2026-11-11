@@ -5,7 +5,12 @@ const { Pool } = require('pg');
 
 // Neon (and other cloud databases) require SSL; a local PostgreSQL does not.
 // For this long-running Express server, use Neon's pooled connection string (host contains "-pooler").
-const url = process.env.DATABASE_URL || '';
+// Clean up the value in case it was pasted with quotes, spaces or the "DATABASE_URL=" prefix
+const url = String(process.env.DATABASE_URL || '')
+  .trim()
+  .replace(/^DATABASE_URL\s*=\s*/, '')
+  .replace(/^["']|["']$/g, '')
+  .trim();
 const isLocal = /@(localhost|127\.0\.0\.1)[:/]/.test(url) || url.includes('host=/');
 const pool = new Pool({
   connectionString: url,
