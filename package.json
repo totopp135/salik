@@ -1,0 +1,29 @@
+{
+  "name": "salik-server",
+  "version": "1.0.0",
+  "description": "Salik (e-Toll) server: API, staff dashboard and web app",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "setup-db": "node scripts/setup-db.js",
+    "simulate": "node scripts/simulate.js"
+  },
+  "dependencies": {
+    "bcryptjs": "2.4.3",
+    "cors": "2.8.5",
+    "dotenv": "16.4.5",
+    "express": "4.19.2",
+    "jsonwebtoken": "9.0.2",
+    "pg": "8.12.0",
+    "@tesseract.js-data/eng": "1.0.0",
+    "jimp": "1.6.1",
+    "jsqr": "1.4.0",
+    "tesseract.js": "7.0.0"
+  },
+  "overrides": {
+    "wasm-feature-detect": "1.8.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

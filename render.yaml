@@ -1,0 +1,24 @@
+# One-click deploy on Render: a web service + a free PostgreSQL database
+services:
+  - type: web
+    name: salik
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: salik-db
+          property: connectionString
+
+databases:
+  - name: salik-db
+    plan: free
+    databaseName: salik
+    user: salik

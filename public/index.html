@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>سالك - لوحة التحكم</title>
+<style>
+  :root { --bg:#f4f6f9; --card:#fff; --text:#1c2733; --muted:#6b7a89; --line:#e3e8ee;
+          --brand:#0b5cff; --ok:#12805c; --warn:#b26a00; --bad:#c62828; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f1720; --card:#18222e; --text:#e8eef5; --muted:#8fa0b2; --line:#2a3846; --brand:#5b9bff; --ok:#3ecf9a; --warn:#f0a93b; --bad:#ff6b6b; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,Segoe UI,Arial,sans-serif; background:var(--bg); color:var(--text); }
+  header { display:flex; justify-content:space-between; align-items:center; padding:14px 24px; background:var(--card); border-bottom:1px solid var(--line); }
+  header h1 { font-size:18px; margin:0; }
+  main { max-width:1100px; margin:20px auto; padding:0 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:16px; }
+  .stat .n { font-size:30px; font-weight:700; }
+  .stat .l { color:var(--muted); font-size:13px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; }
+  .wrap { overflow-x:auto; }
+  .badge { padding:2px 8px; border-radius:99px; font-size:12px; font-weight:600; border:1px solid currentColor; }
+  .PAID { color:var(--ok); } .INSUFFICIENT_BALANCE,.MANUAL_REVIEW { color:var(--warn); }
+  .STOLEN_ALERT { color:var(--bad); } .UNREGISTERED { color:var(--muted); }
+  input, button { font:inherit; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--text); }
+  button { background:var(--brand); color:#fff; border:none; cursor:pointer; font-weight:600; }
+  button.red { background:var(--bad); }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .alertbox { background:var(--bad); color:#fff; border-radius:12px; padding:14px 16px; margin-bottom:16px; font-weight:600; }
+  .alertbox small { display:block; font-weight:400; opacity:.9; margin-top:4px; }
+  #login { max-width:380px; margin:80px auto; }
+  #login input { width:100%; margin-bottom:10px; }
+  .msg { color:var(--muted); font-size:13px; margin-top:8px; min-height:18px; }
+  h2 { font-size:15px; margin:0 0 12px; }
+</style>
+</head>
+<body>
+
+<div id="login" class="card">
+  <h2>سالك: Staff Login</h2>
+  <input id="email" value="admin@etoll.local" placeholder="Email">
+  <input id="password" type="password" value="Admin123!" placeholder="Password">
+  <button onclick="login()" style="width:100%">Sign in</button>
+  <div id="loginMsg" class="msg"></div>
+</div>
+
+<div id="app" style="display:none">
+  <header>
+    <h1>سالك Control Center</h1>
+    <div class="row"><span id="who" class="msg"></span><button class="red" onclick="logout()">Logout</button></div>
+  </header>
+  <main>
+    <div id="alertArea"></div>
+
+    <div class="grid">
+      <div class="card stat"><div class="n" id="sPass">0</div><div class="l">Vehicles today</div></div>
+      <div class="card stat"><div class="n" id="sRev">0</div><div class="l">Revenue today (EGP)</div></div>
+      <div class="card stat"><div class="n" id="sAlerts">0</div><div class="l">Open security alerts</div></div>
+    </div>
+
+    <div class="card">
+      <h2>Live gate passages <span class="msg">(refreshes every 3 seconds)</span></h2>
+      <div class="wrap"><table>
+        <thead><tr><th>Time</th><th>Gate</th><th>Plate</th><th>Status</th><th>Charged</th></tr></thead>
+        <tbody id="passRows"></tbody>
+      </table></div>
+    </div>
+
+    <div class="card">
+      <h2>Security alerts (stolen vehicles)</h2>
+      <div class="wrap"><table>
+        <thead><tr><th>Time</th><th>Plate</th><th>Gate</th><th>Status</th></tr></thead>
+        <tbody id="alertRows"></tbody>
+      </table></div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Report a stolen vehicle</h2>
+        <div class="row">
+          <input id="stolenPlate" placeholder="Plate e.g. ABC 1234">
+          <button class="red" onclick="reportStolen()">Report stolen</button>
+        </div>
+        <div id="stolenMsg" class="msg"></div>
+      </div>
+      <div class="card">
+        <h2>Demo gate simulator</h2>
+        <div class="row">
+          <input id="simPlate" placeholder="Plate e.g. ABC 1234">
+          <button onclick="simulateGate()">Car passes gate</button>
+        </div>
+        <div id="simMsg" class="msg">For demos: pretends a camera at gate CAI-01 saw this plate.</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+var API = '/api/v1';
+var token = sessionStorage.getItem('etoll_token');
+var timer = null;
+
+function el(id) { return document.getElementById(id); }
+
+async function api(method, path, body, headers) {
+  var h = Object.assign({ 'Content-Type': 'application/json' }, headers || {});
+  if (token && path.indexOf('/gate/') !== 0) h['Authorization'] = 'Bearer ' + token;
+  var res = await fetch(API + path, { method: method, headers: h, body: body ? JSON.stringify(body) : undefined });
+  var data = await res.json().catch(function () { return {}; });
+  if (res.status === 401 && path.indexOf('/gate/') !== 0 && path.indexOf('/auth/') < 0) { logout(); throw new Error('Session expired'); }
+  if (!res.ok) throw new Error(data.error || ('Error ' + res.status));
+  return data;
+}
+
+async function login() {
+  el('loginMsg').textContent = 'Signing in...';
+  try {
+    var d = await api('POST', '/admin/auth/login', { email: el('email').value, password: el('password').value });
+    token = d.token;
+    sessionStorage.setItem('etoll_token', token);
+    el('who').textContent = d.staff.full_name + ' (' + d.staff.role + ')';
+    sessionStorage.setItem('etoll_who', el('who').textContent);
+    showApp();
+  } catch (e) { el('loginMsg').textContent = e.message; }
+}
+
+function logout() {
+  token = null;
+  sessionStorage.removeItem('etoll_token');
+  clearInterval(timer);
+  el('app').style.display = 'none';
+  el('login').style.display = 'block';
+}
+
+function showApp() {
+  el('login').style.display = 'none';
+  el('app').style.display = 'block';
+  el('who').textContent = sessionStorage.getItem('etoll_who') || '';
+  refresh();
+  clearInterval(timer);
+  timer = setInterval(refresh, 3000);
+}
+
+function cell(text, cls) {
+  var td = document.createElement('td');
+  if (cls) {
+    var s = document.createElement('span');
+    s.className = 'badge ' + cls;
+    s.textContent = text.replace(/_/g, ' ');
+    td.appendChild(s);
+  } else { td.textContent = text; }
+  return td;
+}
+
+function fillTable(id, rows, builders, emptyText, cols) {
+  var tb = el(id);
+  tb.innerHTML = '';
+  if (!rows.length) {
+    var tr = document.createElement('tr');
+    var td = document.createElement('td');
+    td.colSpan = cols; td.className = 'msg'; td.textContent = emptyText;
+    tr.appendChild(td); tb.appendChild(tr); return;
+  }
+  rows.forEach(function (r) {
+    var tr = document.createElement('tr');
+    builders.forEach(function (b) { tr.appendChild(b(r)); });
+    tb.appendChild(tr);
+  });
+}
+
+async function refresh() {
+  try {
+    var results = await Promise.all([
+      api('GET', '/admin/stats'),
+      api('GET', '/admin/passages'),
+      api('GET', '/admin/alerts')
+    ]);
+    var stats = results[0], passages = results[1], alerts = results[2];
+    el('sPass').textContent = stats.passages_today;
+    el('sRev').textContent = Number(stats.revenue_today).toFixed(2);
+    var open = alerts.filter(function (a) { return a.status === 'NEW'; });
+    el('sAlerts').textContent = open.length;
+
+    var area = el('alertArea');
+    area.innerHTML = '';
+    if (open.length) {
+      var box = document.createElement('div');
+      box.className = 'alertbox';
+      box.textContent = 'STOLEN VEHICLE DETECTED: ' + open[0].plate_number + ' at ' + open[0].gate;
+      var small = document.createElement('small');
+      small.textContent = open.length + ' open alert(s). Notify the police.';
+      box.appendChild(small);
+      area.appendChild(box);
+    }
+
+    fillTable('passRows', passages, [
+      function (r) { return cell(new Date(r.passed_at).toLocaleTimeString()); },
+      function (r) { return cell(r.gate); },
+      function (r) { return cell(r.detected_plate || ''); },
+      function (r) { return cell(r.status, r.status); },
+      function (r) { return cell(Number(r.amount_charged).toFixed(2) + ' EGP'); }
+    ], 'No vehicles yet. Use the simulator below.', 5);
+
+    fillTable('alertRows', alerts, [
+      function (r) { return cell(new Date(r.created_at).toLocaleString()); },
+      function (r) { return cell(r.plate_number); },
+      function (r) { return cell(r.gate); },
+      function (r) { return cell(r.status, r.status === 'NEW' ? 'STOLEN_ALERT' : 'UNREGISTERED'); }
+    ], 'No alerts.', 4);
+  } catch (e) { /* session expiry handled in api() */ }
+}
+
+async function reportStolen() {
+  var plate = el('stolenPlate').value.trim();
+  if (!plate) { el('stolenMsg').textContent = 'Enter a plate number.'; return; }
+  try {
+    await api('POST', '/admin/stolen-reports', { plate_number: plate });
+    el('stolenMsg').textContent = 'Reported. Any gate passage of this plate now raises an alert.';
+    el('stolenPlate').value = '';
+  } catch (e) { el('stolenMsg').textContent = e.message; }
+}
+
+async function simulateGate() {
+  var plate = el('simPlate').value.trim();
+  if (!plate) { el('simMsg').textContent = 'Enter a plate number.'; return; }
+  try {
+    var r = await api('POST', '/gate/passages', { plate: plate, confidence: 0.95, method: 'ANPR' },
+                      { 'x-gate-code': 'CAI-01', 'x-api-key': 'demo-gate-key' });
+    el('simMsg').textContent = 'Gate response: ' + r.action + ' (' + r.status + ')';
+    refresh();
+  } catch (e) { el('simMsg').textContent = e.message; }
+}
+
+if (token) showApp();
+</script>
+</body>
+</html>
