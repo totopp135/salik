@@ -94,7 +94,18 @@ app.post('/api/v1/app/vehicles', user, wrap(async (req, res) => {
 /* ============ MOBILE APP: wallet ============ */
 app.get('/api/v1/app/wallet', user, wrap(async (req, res) => {
   const { rows } = await pool.query('SELECT balance, currency FROM wallets WHERE user_id = $1', [req.auth.id]);
-  res.json(rows[0]);
+  // Current toll price for the driver's first vehicle (a private car if none yet),
+  // so the app can show how many trips the balance covers without hard-coding prices.
+  const price = (await pool.query(
+    `SELECT r.amount AS toll_price, vt.name AS toll_vehicle
+     FROM vehicle_types vt
+     JOIN toll_rates r ON r.vehicle_type_id = vt.id
+       AND r.valid_from <= now() AND (r.valid_to IS NULL OR r.valid_to > now())
+     WHERE vt.id = COALESCE(
+       (SELECT vehicle_type_id FROM vehicles WHERE user_id = $1 AND is_active ORDER BY created_at LIMIT 1),
+       (SELECT id FROM vehicle_types WHERE code = 'CAR'))
+     ORDER BY r.amount LIMIT 1`, [req.auth.id])).rows[0] || {};
+  res.json({ ...rows[0], ...price });
 }));
 
 app.get('/api/v1/app/wallet/transactions', user, wrap(async (req, res) => {
