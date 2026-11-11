@@ -1,8 +1,15 @@
 // Reads a plate number (OCR) or a QR code from a photo sent by the staff app.
 // Libraries are loaded on first use, so the server still starts if they are missing.
 const path = require('path');
+// Each package is required by its literal name so hosting platforms (Vercel) bundle it.
+const loaders = {
+  'jimp': () => require('jimp'),
+  'jsqr': () => require('jsqr'),
+  'tesseract.js': () => require('tesseract.js'),
+  '@tesseract.js-data/eng': () => require('@tesseract.js-data/eng'),
+};
 function lib(name) {
-  try { return require(name); } catch (e) {
+  try { return loaders[name](); } catch (e) {
     throw Object.assign(new Error(`Scanner package "${name}" is not installed. Run update_all.bat again.`), { status: 503 });
   }
 }

@@ -1,8 +1,21 @@
 {
   "redirects": [
-    { "source": "/", "destination": "/app/", "permanent": false }
+    {
+      "source": "/",
+      "destination": "/app/",
+      "permanent": false
+    }
   ],
   "rewrites": [
-    { "source": "/dashboard", "destination": "/index.html" }
-  ]
+    {
+      "source": "/dashboard",
+      "destination": "/index.html"
+    }
+  ],
+  "functions": {
+    "src/server.js": {
+      "includeFiles": "node_modules/{@tesseract.js-data/eng,tesseract.js,tesseract.js-core}/**",
+      "maxDuration": 60
+    }
+  }
 }
