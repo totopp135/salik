@@ -1,4 +1,5 @@
-# One-click deploy on Render: a web service + a free PostgreSQL database
+# One-click deploy on Render: the Salik web service.
+# The database lives on Neon (free, never expires): paste its connection string as DATABASE_URL.
 services:
   - type: web
     name: salik
@@ -13,12 +14,4 @@ services:
       - key: JWT_SECRET
         generateValue: true
       - key: DATABASE_URL
-        fromDatabase:
-          name: salik-db
-          property: connectionString
-
-databases:
-  - name: salik-db
-    plan: free
-    databaseName: salik
-    user: salik
+        sync: false
