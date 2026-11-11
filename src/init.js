@@ -18,7 +18,7 @@ async function initDatabase() {
      VALUES ('CAI-01','Cairo-Alexandria Desert Road Gate 1','Cairo-Alex Desert Road','North',$1)
      RETURNING id`, [gateKey])).rows[0];
 
-  const prices = { MOTORCYCLE: 5, CAR: 20, MICROBUS: 30, BUS: 40, TRUCK: 60 };
+  const prices = { MOTORCYCLE: 5, CAR: 10, MICROBUS: 30, BUS: 40, TRUCK: 60 };
   const types = (await pool.query('SELECT id, code FROM vehicle_types')).rows;
   for (const t of types) {
     await pool.query('INSERT INTO toll_rates (gate_id, vehicle_type_id, amount) VALUES ($1,$2,$3)',

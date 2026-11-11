@@ -37,7 +37,7 @@ function check(label, ok, extra = '') {
     const top = await call('POST', '/app/wallet/topup-demo', { amount: 100 }, auth);
     check('Balance is 100', Number(top.balance) === 100, `(balance ${top.balance})`);
 
-    console.log('\n3) Car drives through the gate (toll for a car = 20 EGP)');
+    console.log('\n3) Car drives through the gate (toll for a car = 10 EGP)');
     const p1 = await call('POST', '/gate/passages', { plate, confidence: 0.95, method: 'ANPR' }, gate);
     check('Gate says OPEN and toll was paid', p1.action === 'OPEN' && p1.status === 'PAID', `(${p1.status})`);
     const w1 = await call('GET', '/app/wallet', null, auth);
